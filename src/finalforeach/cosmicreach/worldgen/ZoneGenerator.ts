@@ -18,9 +18,8 @@ abstract class ZoneGenerator {
     }
     
     public abstract getSaveKey(): string;
-    
+
     public abstract create(): void;
-    
     public abstract generateForChunkColumn(p0: Zone, p1: ChunkColumn): void;
     
     public static getZoneGenerator(zoneGenSaveKey: string): ZoneGenerator;
@@ -62,10 +61,10 @@ abstract class ZoneGenerator {
                 return;
             }
             ZoneGenerator.allZoneGenerators = new Map<string,Function> ();
-            registerZoneGenerator(new EarthZoneGenerator());
-            registerZoneGenerator(new NostalgicIslandZoneGenerator());
-            registerZoneGenerator(new MoonZoneGenerator());
-            registerZoneGenerator(new FlatZoneGenerator());
+            this.registerZoneGenerator(new EarthZoneGenerator());
+            this.registerZoneGenerator(new NostalgicIslandZoneGenerator());
+            this.registerZoneGenerator(new MoonZoneGenerator());
+            this.registerZoneGenerator(new FlatZoneGenerator());
         });
     }
     

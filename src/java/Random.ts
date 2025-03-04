@@ -42,7 +42,7 @@ export class Random {
         return num;
     }
 
-    nextLong(): bigint {
+    nextLong(): number {
         const high = this.nextInt() >>> 0;
         const low = this.nextInt() >>> 0;
         return high * 0x100000000 + low;
