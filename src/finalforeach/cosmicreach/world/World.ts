@@ -4,20 +4,21 @@ import { Serializable } from "../../../custom/JsonSerial";
 import { Synchronized } from "../../../custom/Synchronized"
 import { SaveLocation } from "../io/SaveLocation"
 import { RuntimeInfo } from "../RuntimeInfo"
+import { HashCode } from "../../../java/HashCode"
+import { Random } from "../../../java/Random"
 
 export class World implements Serializable {
-    public defaultZoneId: string;
+    public defaultZoneId: string | null;
     private zoneMap: Map<String, Zone>;
     public worldFolderName: string;
-    private worldDisplayName: string;
+    private worldDisplayName: string | null;
     public worldSeed: number;
     public players: Array<Player>;
     public lastPlayed: number;
     public worldCreated: number;
     public currentWorldTick: number;
-    private canEnter: boolean;
+    private _canEnter: boolean;
     private sync: Synchronized = new Synchronized();
-    //private zoneMapMutex: Mutex = new Mutex();
 
     public getDisplayName(): string {
         if (this.worldDisplayName == null) {
@@ -34,14 +35,6 @@ export class World implements Serializable {
         return this.sync.synchronized("zoneMap", async () => {
             return this.zoneMap.get(zoneId);
         });
-
-        //const release = await this.zoneMapMutex.acquire();
-        //try {
-        //    return this.zoneMap.get(zoneId);
-        //}
-        //finally {
-        //    release();
-        //}
     }
 
     public async getZoneCreateIfNull(zoneId: string): Promise<Zone> {
@@ -54,20 +47,6 @@ export class World implements Serializable {
             }
             return zone;
         });
-
-        //const release = await this.zoneMapMutex.acquire();
-        //try {
-        //    let zone: Zone = this.zoneMap.get(zoneId);
-        //    if (zone == null && GameSingletons.isHost) {
-        //        zone = Zone.loadZone(this, zoneId);
-        //        this.zoneMap.set(zoneId, zone);
-        //        ZoneLoaders.INSTANCE.addZoneLoader(zone);
-        //    }
-        //    return zone;
-        //}
-        //finally {
-        //    release();
-        //}
     }
 
     public async getZones(): Promise<IterableIterator<Zone>> {
@@ -83,66 +62,73 @@ export class World implements Serializable {
     }
 
     public getDefaultZone(): Promise<Zone> {
-        return this.getZoneCreateIfNull(this.defaultZoneId);
+        return this.getZoneCreateIfNull(String(this.defaultZoneId));
     }
 
-    public static createNew(worldDisplayName: string, worldSeed: string, defaultZoneId: string, zoneGen: ZoneGenerator): World {
-        let seed: number = 0;
-        if (worldSeed != null && worldSeed.length > 0) {
-            try {
-                seed = Number.parseInt(worldSeed);
-            }
-            catch (ex) {
-                seed = worldSeed.hashCode();
-            }
-        }
-        else {
-            seed = new Random().nextLong();
-        }
-        return createNew(worldDisplayName, seed, defaultZoneId, zoneGen);
-    }
-
-    public static String getFileSafeName(final String desiredFileName) {
+    public static getFileSafeName(desiredFileName: string): string {
         return FileUtils.getFileSafeName(desiredFileName);
     }
 
-    public static World createNew(final String worldDisplayName, final long worldSeed, final String defaultZoneId, final ZoneGenerator zoneGen) {
-        final World world = new World();
+    public static createNew(worldDisplayName: string, worldSeed: string, defaultZoneId: string, zoneGen: ZoneGenerator): World;
+    public static createNew(worldDisplayName: string, worldSeed: string | number, defaultZoneId: string, zoneGen: ZoneGenerator): World {
+        if (typeof worldSeed === "string") {
+            if (worldSeed != null && worldSeed.length > 0) {
+                try {
+                    worldSeed = Number.parseInt(worldSeed);
+                }
+                catch (ex) {
+                    worldSeed = HashCode(worldSeed);
+                }
+            }
+            else {
+                worldSeed = new Random().nextLong();
+            }
+        }
+
+        const world: World = new World();
         world.worldDisplayName = worldDisplayName;
-        world.worldFolderName = getFileSafeName(worldDisplayName);
+        world.worldFolderName = this.getFileSafeName(worldDisplayName);
         world.defaultZoneId = defaultZoneId;
         world.worldSeed = worldSeed;
         world.addNewZone(defaultZoneId, zoneGen);
-        world.worldCreated = System.currentTimeMillis();
+        world.worldCreated = new Date().getTime();
         world.lastPlayed = world.worldCreated;
         return world;
     }
 
-    public void addNewZone(final String zoneId, final ZoneGenerator zoneGen) {
+    public addNewZone(zoneId: string, zoneGen: ZoneGenerator): void {
         if (zoneGen != null) {
-            zoneGen.seed = this.worldSeed + zoneId.hashCode();
+            zoneGen.seed = this.worldSeed + HashCode(zoneId);
         }
-        final Zone zone = new Zone(this, zoneId, zoneGen);
+        const zone: Zone = new Zone(this, zoneId, zoneGen);
         this.addZone(zone);
     }
 
-    public void addZone(final Zone zone) {
-        this.zoneMap.put(zone.zoneId, zone);
+    public addZone(zone: Zone): void {
+        this.zoneMap.set(zone.zoneId, zone);
         ZoneLoaders.INSTANCE.addZoneLoader(zone);
     }
 
-    protected World() {
-        this.zoneMap = new HashMap<String, Zone>();
+    protected constructor() {
+        this.zoneMap = new Map<String, Zone>();
         this.worldSeed = new Random().nextLong();
         this.players = new Array<Player>();
-        this.canEnter = true;
+        this._canEnter = true;
+
+        // these had to be set
+        this.defaultZoneId = null;
+        this.worldFolderName = "";
+        this.worldDisplayName = null;
+        this.lastPlayed = 0;
+        this.worldCreated = 0;
+        this.currentWorldTick = 0;
     }
 
-    public String getFullSaveFolder() {
+    public getFullSaveFolder(): string {
         return SaveLocation.getWorldSaveFolderLocation(this);
     }
 
-    public write(json: Record<string, unknown>): void {
+    public async write(json: Record<string, unknown>): Promise<void> {
         json["latestRegionFileVersion"] = 2;
         json["lastSavedVersion"] = RuntimeInfo.version;
         json["defaultZoneId"] = this.defaultZoneId;
@@ -151,46 +137,46 @@ export class World implements Serializable {
         json["worldCreatedEpochMillis"] = this.worldCreated;
         json["lastPlayedEpochMillis"] = this.lastPlayed;
         json["worldTick"] = this.currentWorldTick;
-        for (const z of this.getZones()) {
+        for (const z of await this.getZones()) {
             z.saveZone(this);
         }
     }
 
-    public read(final Json json, final JsonValue jsonData): void {
+    public async read(json: Record<string, unknown>): Promise<void> {
         try {
-            this.canEnter = true;
-            final int latestRegionFileVersion = jsonData.getInt("latestRegionFileVersion", 0);
-            this.defaultZoneId = jsonData.getString("defaultZoneId", null);
-            this.worldDisplayName = jsonData.getString("worldDisplayName", null);
-            this.worldSeed = jsonData.getLong("worldSeed", 0L);
-            this.currentWorldTick = jsonData.getLong("worldTick", 0L);
-            this.worldCreated = jsonData.getLong("worldCreatedEpochMillis", 0L);
-            this.lastPlayed = jsonData.getLong("lastPlayedEpochMillis", 0L);
+            this._canEnter = true;
+            const latestRegionFileVersion: number = json["latestRegionFileVersion"] as number || 0;
+            this.defaultZoneId = json["defaultZoneId"] as string || null;
+            this.worldDisplayName = json["worldDisplayName"] as string || null;
+            this.worldSeed = json["worldSeed"] as number || 0;
+            this.currentWorldTick = json["worldTick"] as number || 0;
+            this.worldCreated = json["worldCreatedEpochMillis"] as number || 0;
+            this.lastPlayed = json["lastPlayedEpochMillis"] as number || 0;
             if (latestRegionFileVersion > 2) {
-                throw new UnsupportedWorldException("Attempted to load a world \"" + this.worldDisplayName + "\" with file version:" + latestRegionFileVersion + " but can only support worlds up to file version 2");
+                throw new Error(`Attempted to load a world "${this.worldDisplayName}" with file version:"${latestRegionFileVersion}" but can only support worlds up to file version 2`);
             }
         }
-        catch (final Exception ex) {
+        catch (ex) {
             Logger.error(ex);
-            this.canEnter = false;
+            this._canEnter = false;
         }
     }
 
-    public String getWorldFolderName() {
+    public getWorldFolderName(): string {
         return this.worldFolderName;
     }
 
-    public long getCurrentWorldTick() {
+    public getCurrentWorldTick(): number {
         return this.currentWorldTick;
     }
 
-    public long getDayNumber() {
-        final double currentTimeSeconds = this.getCurrentWorldTick() * 0.05f;
-        final int cycleLength = 1920;
-        return Math.floorDiv((int)currentTimeSeconds, cycleLength) + 1;
+    public getDayNumber(): number {
+        const currentTimeSeconds: number = this.getCurrentWorldTick() * 0.05;
+        const cycleLength: number = 1920;
+        return Math.floor(currentTimeSeconds / cycleLength) + 1;
     }
 
-    public boolean canEnter() {
-        return this.canEnter && ZoneGenerator.hasGenerator(this.defaultZoneId);
+    public canEnter(): boolean {
+        return this._canEnter && ZoneGenerator.hasGenerator(this.defaultZoneId);
     }
 }
